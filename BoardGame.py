@@ -1,7 +1,25 @@
-from flask import Flask, render_template_string
-import random
+from flask import Flask, render_template_string, request, jsonify
+import os
 
 app = Flask(__name__)
+
+# ---------------------------
+# Read high score from file
+# ---------------------------
+def load_high_score():
+    if not os.path.exists("highscore.txt"):
+        with open("highscore.txt", "w") as f:
+            f.write("0")
+        return 0
+    with open("highscore.txt", "r") as f:
+        return int(f.read().strip())
+
+def save_high_score(score):
+    with open("highscore.txt", "w") as f:
+        f.write(str(score))
+
+# Load once at startup
+SERVER_HIGH_SCORE = load_high_score()
 
 html = """
 <!DOCTYPE html>
@@ -91,7 +109,7 @@ html = """
 
     <h2 id='score'>Score: 0</h2>
     <h2 id='lives'>Lives: 3</h2>
-    <h2 id='highscore'>High Score: 0</h2>
+    <h2 id='highscore'>High Score: {{ highscore }}</h2>
 
     <button id="playAgain" onclick="restartGame()">Play Again</button>
 </div>
@@ -99,7 +117,7 @@ html = """
 <script>
     let score = 0;
     let lives = 3;
-    let highscore = 0;
+    let highscore = {{ highscore }};
 
     const difficultyLevels = {
         easy: 10,
@@ -158,11 +176,20 @@ html = """
             lives--;
         }
 
-        if (score > highscore) highscore = score;
-
         document.getElementById("score").textContent = `Score: ${score}`;
         document.getElementById("lives").textContent = `Lives: ${lives}`;
-        document.getElementById("highscore").textContent = `High Score: ${highscore}`;
+
+        if (score > highscore) {
+            highscore = score;
+            document.getElementById("highscore").textContent = `High Score: ${highscore}`;
+
+            // Save high score to server
+            fetch("/save_highscore", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({score: highscore})
+            });
+        }
 
         if (lives <= 0) {
             gameOver();
@@ -198,7 +225,24 @@ html = """
 
 @app.route('/')
 def index():
-    return render_template_string(html)
+    return render_template_string(html, highscore=SERVER_HIGH_SCORE)
+
+# ----------------------------------------
+# Save high score to file (POST endpoint)
+# ----------------------------------------
+@app.route('/save_highscore', methods=['POST'])
+def save_score_route():
+    global SERVER_HIGH_SCORE
+    data = request.get_json()
+
+    new_score = int(data.get("score", 0))
+
+    if new_score > SERVER_HIGH_SCORE:
+        SERVER_HIGH_SCORE = new_score
+        save_high_score(SERVER_HIGH_SCORE)
+
+    return jsonify(success=True, highscore=SERVER_HIGH_SCORE)
 
 if __name__ == '__main__':
     app.run(debug=True)
+
